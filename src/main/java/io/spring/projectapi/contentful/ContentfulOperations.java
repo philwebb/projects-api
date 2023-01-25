@@ -16,16 +16,19 @@
 
 package io.spring.projectapi.contentful;
 
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import com.contentful.java.cma.CMAClient;
 import com.contentful.java.cma.model.CMAArray;
 import com.contentful.java.cma.model.CMAEntry;
+import com.contentful.java.cma.model.CMAHttpException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -44,7 +47,7 @@ class ContentfulOperations {
 		return -version1.compareTo(version2);
 	};
 
-	private final CMAClient client;
+	private final RetryingClient client;
 
 	private final ObjectMapper objectMapper;
 
@@ -54,7 +57,7 @@ class ContentfulOperations {
 
 	ContentfulOperations(ObjectMapper objectMapper, CMAClient client) {
 		this.objectMapper = objectMapper;
-		this.client = client;
+		this.client = new RetryingClient(client);
 	}
 
 	private static CMAClient buildClient(String accessToken, String spaceId, String environmentId) {
@@ -71,8 +74,7 @@ class ContentfulOperations {
 		Map<String, Object> documentationMap = convertToMap(documentation);
 		releases.add(documentationMap);
 		computeCurrentRelease(releases);
-		CMAEntry updated = this.client.entries().update(projectEntry);
-		this.client.entries().publish(updated);
+		updateAndPublish(projectEntry);
 	}
 
 	private void computeCurrentRelease(List<Map<String, Object>> releases) {
@@ -99,8 +101,12 @@ class ContentfulOperations {
 		NoSuchContentfulProjectDocumentationFoundException.throwIfHasNotPresent(documentations, projectSlug, version);
 		documentations.removeIf((documentation) -> documentation.get("version").equals(version));
 		computeCurrentRelease(documentations);
-		CMAEntry updated = this.client.entries().update(projectEntry);
-		this.client.entries().publish(updated);
+		updateAndPublish(projectEntry);
+	}
+
+	private void updateAndPublish(CMAEntry projectEntry) {
+		CMAEntry updated = this.client.update(projectEntry);
+		this.client.publish(updated);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -110,11 +116,64 @@ class ContentfulOperations {
 
 	private CMAEntry getProjectEntry(String projectSlug) {
 		Map<String, String> query = Map.of("content_type", "project", "fields.slug", projectSlug);
-		CMAArray<CMAEntry> entries = this.client.entries().fetchAll(query);
+		CMAArray<CMAEntry> entries = this.client.fetchAllEntries(query);
 		List<CMAEntry> items = entries.getItems();
 		NoSuchContentfulProjectException.throwIfEmpty(items, projectSlug);
 		NoUniqueContentfulProjectException.throwIfNoUniqueResult(items, projectSlug);
 		return items.get(0);
+	}
+
+	/**
+	 * {@link CMAClient} wrapper to apply retry logic.
+	 */
+	private static class RetryingClient {
+
+		private static final long TIMEOUT = Duration.ofMinutes(5).toNanos();
+
+		private final CMAClient client;
+
+		RetryingClient(CMAClient client) {
+			this.client = client;
+		}
+
+		CMAArray<CMAEntry> fetchAllEntries(Map<String, String> query) {
+			return doWithRety(() -> this.client.entries().fetchAll(query));
+		}
+
+		CMAEntry update(CMAEntry projectEntry) {
+			return doWithRety(() -> this.client.entries().update(projectEntry));
+		}
+
+		void publish(CMAEntry updated) {
+			doWithRety(() -> this.client.entries().publish(updated));
+		}
+
+		private <T> T doWithRety(Supplier<T> call) {
+			long startTime = System.nanoTime();
+			do {
+				try {
+					return call.get();
+				}
+				catch (CMAHttpException ex) {
+					int rateLimitReset = ex.rateLimitReset();
+					if (rateLimitReset < 0 || (System.nanoTime() - startTime) > TIMEOUT) {
+						throw ex;
+					}
+					sleep(rateLimitReset);
+				}
+			}
+			while (true);
+		}
+
+		private void sleep(int seconds) {
+			try {
+				Thread.sleep(Duration.ofSeconds(seconds).toMillis());
+			}
+			catch (InterruptedException interruptedException) {
+				Thread.currentThread().interrupt();
+			}
+		}
+
 	}
 
 }
