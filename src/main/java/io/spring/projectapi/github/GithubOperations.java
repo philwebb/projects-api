@@ -54,6 +54,12 @@ import org.springframework.web.client.RestTemplate;
  */
 public class GithubOperations {
 
+	private static final TypeReference<@NotNull List<ProjectDocumentation>> DOCUMENTATION_LIST = new TypeReference<>() {
+	};
+
+	private static final TypeReference<List<ProjectSupport>> SUPPORT_LIST = new TypeReference<>() {
+	};
+
 	private static final String GITHUB_URI = "https://api.github.com/repos/spring-io/spring-website-content/contents";
 
 	private static final Comparator<ProjectDocumentation> VERSION_COMPARATOR = GithubOperations::compare;
@@ -111,13 +117,7 @@ public class GithubOperations {
 
 	@NotNull
 	private List<ProjectDocumentation> convertToProjectDocumentation(String content) {
-		try {
-			return this.objectMapper.readValue(content, new TypeReference<>() {
-			});
-		}
-		catch (JsonProcessingException ex) {
-			throw new RuntimeException(ex);
-		}
+		return readValue(content, DOCUMENTATION_LIST);
 	}
 
 	private void updateProjectDocumentation(String projectSlug, List<ProjectDocumentation> documentations, String sha) {
@@ -176,7 +176,7 @@ public class GithubOperations {
 		List<ProjectDocumentation> updatedGaList = new ArrayList<>(getListWithUpdatedCurrentRelease(sortedGaList));
 		Collections.reverse(updatedGaList);
 		preReleaseList.addAll(updatedGaList);
-		return preReleaseList;
+		return List.copyOf(preReleaseList);
 	}
 
 	@NotNull
@@ -267,7 +267,7 @@ public class GithubOperations {
 		catch (HttpClientErrorException ex) {
 			// Return empty list
 		}
-		return projects;
+		return List.copyOf(projects);
 	}
 
 	public Project getProject(String projectSlug) {
@@ -282,7 +282,7 @@ public class GithubOperations {
 	public List<ProjectDocumentation> getProjectDocumentations(String projectSlug) {
 		ResponseEntity<Map<String, Object>> response = getFile(projectSlug, "documentation.json");
 		String content = getFileContents(response);
-		return convertToProjectDocumentation(content);
+		return List.copyOf(convertToProjectDocumentation(content));
 	}
 
 	public List<ProjectSupport> getProjectSupports(String projectSlug) {
@@ -292,9 +292,12 @@ public class GithubOperations {
 		}
 		String contents = getFileContents(response);
 		getProjectSupportPolicy(projectSlug);
+		return List.copyOf(readValue(contents, SUPPORT_LIST));
+	}
+
+	private <T> T readValue(String contents, TypeReference<T> type) {
 		try {
-			return this.objectMapper.readValue(contents, new TypeReference<>() {
-			});
+			return this.objectMapper.readValue(contents, type);
 		}
 		catch (JsonProcessingException ex) {
 			throw new RuntimeException(ex);

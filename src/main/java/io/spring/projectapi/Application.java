@@ -20,7 +20,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.spring.projectapi.ApplicationProperties.Github;
 import io.spring.projectapi.github.GithubOperations;
 
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -30,11 +29,6 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication
 @EnableConfigurationProperties(ApplicationProperties.class)
 public class Application {
-
-	@Bean
-	public ApplicationRunner applicationRunner(ProjectRepository repository) {
-		return (args) -> repository.update();
-	}
 
 	@Bean
 	public GithubOperations githubOperations(RestTemplateBuilder builder, ObjectMapper objectMapper,

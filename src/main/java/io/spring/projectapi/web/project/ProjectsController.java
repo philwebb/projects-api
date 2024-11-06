@@ -58,7 +58,7 @@ public class ProjectsController {
 	}
 
 	@GetMapping
-	public CollectionModel<EntityModel<Project>> projects() throws Exception {
+	public CollectionModel<EntityModel<Project>> projects() {
 		List<Project> projects = this.projectRepository.getProjects().stream().map(this::asProject).toList();
 		CollectionModel<EntityModel<Project>> collection = CollectionModel.of(projects.stream().map((project) -> {
 			try {
